@@ -186,8 +186,8 @@ In this section of the ```<name_traits>``` header we find the following traits:
 - ```constexpr std::name[] std::get_object_specifiers_v<std::name>```
 - ```constexpr std::name[] std::get_type_specifiers_v<std::name>```
 - ```typelist<Signatures...> std::get_overloads_t<std::name>```
-- ```constexpr std::name[] std::get_function_specifiers_v<Signature, std::name>```
-- ```constexpr std::name[] std::get_arguments_v<Signature, std::name>```
+- ```constexpr std::name[] std::get_function_specifiers_v<std::name, Signature>```
+- ```constexpr std::name[] std::get_arguments_v<std::name, Signature>```
 
 For the examples below, have the following code as references.
 ```C++
@@ -289,37 +289,104 @@ auto pointer_to_first_set_value = static_cast<set_value_first_overload*>(&C::set
 using C_constructor_overloads = std::get_overloads_t<`C::C`>; // typelist<void(int)>
 ```
 
-#### ```constexpr std::name[] std::get_function_specifiers_v<Signature, std::name>```
+#### ```constexpr std::name[] std::get_function_specifiers_v<std::name, Signature>```
 
 Given an overload set name, a function signature type and an optional list of name traits, returns an array containing all the visible specifiers associated with the name.
 More formally:
 ```C++
-template <typename Signature, std::name Name, template <std::name> class ...Filter>
-using get_function_specifiers_v = std::get_function_specifiers<Signature, std::name, Filter...>::value;
+template <std::name Name, typename Signature, template <std::name> class ...Filter>
+using get_function_specifiers_v = std::get_function_specifiers<std::name, Signature, Filter...>::value;
 ```
 Examples:
 ```C++
-constexpr auto set_default_specifiers = std::get_function_specifiers_v<void(int), `C::set_default`>; // `protected`, `static`
-constexpr auto get_value_specifiers = std::get_function_specifiers_v<int(), `C::get_value`, std::is_function_specifier_v>; // `virtual`
+constexpr auto set_default_specifiers = std::get_function_specifiers_v<`C::set_default`, void(int)>; // `protected`, `static`
+constexpr auto get_value_specifiers = std::get_function_specifiers_v<`C::get_value`, int(), std::is_function_specifier_v>; // `virtual`
 constexpr auto get_value_is_virtual = Int_typedef[0] == $"virtual"; // true
 ```
 
-#### ```constexpr std::name[] std::get_arguments_v<Signature, std::name>```
+An specialization omitting the the ```Signature``` argument for non-overload functions may be possible.
+
+#### ```constexpr std::name[] std::get_arguments_v<std::name, Signature>```
 
 Given an overload set name, a function signature type obtain the names of the argments.
 More formally:
 ```C++
-template <typename Signature, std::name Name>
-using get_arguments_v = std::get_arguments<Signature, std::name>::value;
+template <std::name Name, typename Signature>
+using get_arguments_v = std::get_arguments<std::name, Signature>::value;
 ```
 Example:
 ```C++
-constexpr auto C_ctor_args = std::get_arguments_v<void(int), `C::C`>; // `value`
+constexpr auto C_ctor_args = std::get_arguments_v<`C::C`, void(int)>; // `value`
+```
+
+An specialization omitting the the ```Signature``` argument for non-overload functions may be possible.
+
+## Use-Cases
+
+This section is reserved for more elaborated use-cases for the introspection mechanisms introduced so far.
+
+### ```std::name``` of a ```decltype```
+
+If you need to obtain the name of the type of an object, creating a ```typedef``` or a ```using``` alias will not help you.
+Using these will introduce new names and that's not what will want. Do the following instead:
+
+```C++
+#include <iostream>
+int main(int argc, char** argv) {
+  std::cout << `decltype(argc)` << ' ' << `argc` << ", " << `decltype(argv)` << ' ' << `argv`; // int argc, char** argv
+  return 0;
+}
+```
+
+### Factory Functions
+
+Want to create factory functions for multiple constructors? Try the following:
+```C++
+struct C {
+  C(int) {}
+  C(float) {}
+  C(unsigned) {}
+};
+
+template <typename T, typename ...Signatures>
+struct Register {
+  template <typename ...Args>
+  void create(Args...) {
+    instance = std::make_unique<T>(std::forward(Args)...);
+  }
+  std::unique_ptr<T> instance;
+  std::tuple<Signatures*...> factories = std::make_tuple(static_cast<Signatures*>(&create)...);
+};
+
+Register<C, std::get_overloads_t<`C::C`>> register; // This proposal
+
+std::get<0>(register.factories)(-1);
+std::unique_ptr<C> c = std::move(register.instance);
+```
+
+TODO: missing steps in the example.
+
+### Possible Optimizations
+
+The compiler should be smart enough to reduce:
+```C++
+@`name`
+`@name`
+```
+To:
+```C++
+name // entity
+`name` // std::name
 ```
 
 ## Missing Pieces
 
-- ```default``` operator - tentative - obtain the value default initializer of a const, static, function arguments, or type default constructor.
+The introspection mechanisms introduced above do not cover all corners of the language.
+Some ideas described here may deserve a separate proposal 
+
+### ```default(std::name)``` operator
+Tentative - obtain a function argument default value.
+
 - Template instrospection - pending, dependent of some non-existing language feature, such as deduced non-type parameters - A.K.A. ```template <auto value> struct X{}```.
 - Mechanism for access violation - pending, eiter a cast operator ```unrestricted_access(C::j)``` or inheritance-based ```class X : friend Y {};```
 - Inheritance type traits - pending, such as ```typelist<Bases...> std::bases_of_t<T>```
